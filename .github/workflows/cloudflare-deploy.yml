@@ -7,10 +7,11 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# 核心修复：在这里显式声明权限，强制覆盖系统默认设置
 permissions:
-  contents: read
+  contents: write
   deployments: write
-  packages: write  # 解决镜像推送权限问题
+  packages: write
 
 jobs:
   deploy:
@@ -33,55 +34,28 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Set environment variables
-        run: |
-          echo "BUILD_TARGET=cloudflare" >> $GITHUB_ENV
-          echo "NODE_ENV=production" >> $GITHUB_ENV
-          echo "NEXT_PUBLIC_STORAGE_TYPE=${{ secrets.NEXT_PUBLIC_STORAGE_TYPE }}" >> $GITHUB_ENV
-          echo "UPSTASH_URL=${{ secrets.UPSTASH_URL }}" >> $GITHUB_ENV
-          echo "UPSTASH_TOKEN=${{ secrets.UPSTASH_TOKEN }}" >> $GITHUB_ENV
-          echo "REDIS_URL=${{ secrets.REDIS_URL }}" >> $GITHUB_ENV
-          echo "Redis_URL=${{ secrets.Redis_URL }}" >> $GITHUB_ENV
-
-      - name: Configure D1 Database in wrangler.toml
-        run: |
-          STORAGE_TYPE="${{ secrets.NEXT_PUBLIC_STORAGE_TYPE }}"
-          if [ "$STORAGE_TYPE" != "d1" ]; then
-            sed -i '/^# D1 数据库绑定$/,/^database_id = .*$/d' wrangler.toml
-            sed -i '/^\[\[d1_databases\]\]$/,/^$/{ /^\[\[d1_databases\]\]$/d; /^binding = /d; /^database_name = /d; /^database_id = /d; }' wrangler.toml
-          elif [ -n "${{ secrets.D1_DATABASE_ID }}" ]; then
-            sed -i 's/REPLACE_WITH_YOUR_D1_DATABASE_ID/${{ secrets.D1_DATABASE_ID }}/g' wrangler.toml
-          fi
-
       - name: Update wrangler.toml with environment variables
         run: |
           append_var() {
-            local var_name=$1
-            local var_value=$2
-            if [ -n "$var_value" ]; then
-              echo "$var_name = \"$var_value\"" >> wrangler.toml
-            fi
+            [ -n "$2" ] && echo "$1 = \"$2\"" >> wrangler.toml
           }
-          # 按照文档必需配置进行填充
+          # 严格按照作者要求的 Secrets 注入
           append_var "NEXT_PUBLIC_STORAGE_TYPE" "${{ secrets.NEXT_PUBLIC_STORAGE_TYPE }}"
           append_var "UPSTASH_URL" "${{ secrets.UPSTASH_URL }}"
           append_var "UPSTASH_TOKEN" "${{ secrets.UPSTASH_TOKEN }}"
           append_var "REDIS_URL" "${{ secrets.REDIS_URL }}"
-          append_var "Redis_URL" "${{ secrets.Redis_URL }}"
           append_var "USERNAME" "${{ secrets.USERNAME }}"
           append_var "PASSWORD" "${{ secrets.PASSWORD }}"
 
       - name: Build for Cloudflare
         run: pnpm run build:cloudflare
         env:
-          # 核心：确保构建阶段能读取到所有 Upstash 必需变量
+          # 解决编译时变量丢失问题
           UPSTASH_URL: ${{ secrets.UPSTASH_URL }}
           UPSTASH_TOKEN: ${{ secrets.UPSTASH_TOKEN }}
           REDIS_URL: ${{ secrets.REDIS_URL }}
-          Redis_URL: ${{ secrets.Redis_URL }}
           NEXT_PUBLIC_STORAGE_TYPE: ${{ secrets.NEXT_PUBLIC_STORAGE_TYPE }}
           NODE_ENV: production
-          BUILD_TARGET: cloudflare
           CI: true
 
       - name: Install Wrangler
