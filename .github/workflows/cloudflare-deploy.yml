@@ -10,7 +10,7 @@ concurrency:
 permissions:
   contents: read
   deployments: write
-  packages: write  # 允许推送镜像，解决 image_3d71c1.png 中的权限报错
+  packages: write  # 解决镜像推送权限问题
 
 jobs:
   deploy:
@@ -62,6 +62,7 @@ jobs:
               echo "$var_name = \"$var_value\"" >> wrangler.toml
             fi
           }
+          # 按照文档必需配置进行填充
           append_var "NEXT_PUBLIC_STORAGE_TYPE" "${{ secrets.NEXT_PUBLIC_STORAGE_TYPE }}"
           append_var "UPSTASH_URL" "${{ secrets.UPSTASH_URL }}"
           append_var "UPSTASH_TOKEN" "${{ secrets.UPSTASH_TOKEN }}"
@@ -73,12 +74,12 @@ jobs:
       - name: Build for Cloudflare
         run: pnpm run build:cloudflare
         env:
-          # 在构建阶段显式传递变量，防止 image_3ee8a4.png 中的编译失败
+          # 核心：确保构建阶段能读取到所有 Upstash 必需变量
           UPSTASH_URL: ${{ secrets.UPSTASH_URL }}
           UPSTASH_TOKEN: ${{ secrets.UPSTASH_TOKEN }}
           REDIS_URL: ${{ secrets.REDIS_URL }}
           Redis_URL: ${{ secrets.Redis_URL }}
-          NEXT_PUBLIC_STORAGE_TYPE: "redis"
+          NEXT_PUBLIC_STORAGE_TYPE: ${{ secrets.NEXT_PUBLIC_STORAGE_TYPE }}
           NODE_ENV: production
           BUILD_TARGET: cloudflare
           CI: true
@@ -86,16 +87,11 @@ jobs:
       - name: Install Wrangler
         run: pnpm add -g wrangler@4.60.0
 
-      - name: Run D1 Database Migrations
-        run: |
-          STORAGE_TYPE="${{ secrets.NEXT_PUBLIC_STORAGE_TYPE }}"
-          if [ "$STORAGE_TYPE" != "d1" ]; then
-            echo "Storage type is not d1, skipping migrations"
-            exit 0
-          fi
-          # 如果需要运行迁移，逻辑写在这里
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-
       - name: Deploy to Cloudflare
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy
+          packageManager: pnpm
+          wranglerVersion: "4.60.0"
