@@ -3,21 +3,12 @@ name: Deploy to Cloudflare
 on:
   workflow_dispatch:
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
-# 核心修复：在这里显式声明权限，强制覆盖系统默认设置
-permissions:
-  contents: write
-  deployments: write
-  packages: write
-
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    name: Deploy to Cloudflare Pages
-
+    permissions:
+      contents: read
+      deployments: write
     steps:
       - name: Checkout source code
         uses: actions/checkout@v4
@@ -34,32 +25,22 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Update wrangler.toml with environment variables
+      - name: Update wrangler.toml
         run: |
-          append_var() {
-            [ -n "$2" ] && echo "$1 = \"$2\"" >> wrangler.toml
-          }
-          # 严格按照作者要求的 Secrets 注入
-          append_var "NEXT_PUBLIC_STORAGE_TYPE" "${{ secrets.NEXT_PUBLIC_STORAGE_TYPE }}"
-          append_var "UPSTASH_URL" "${{ secrets.UPSTASH_URL }}"
-          append_var "UPSTASH_TOKEN" "${{ secrets.UPSTASH_TOKEN }}"
-          append_var "REDIS_URL" "${{ secrets.REDIS_URL }}"
-          append_var "USERNAME" "${{ secrets.USERNAME }}"
-          append_var "PASSWORD" "${{ secrets.PASSWORD }}"
+          # 注入必需配置
+          echo "NEXT_PUBLIC_STORAGE_TYPE = \"${{ secrets.NEXT_PUBLIC_STORAGE_TYPE }}\"" >> wrangler.toml
+          echo "UPSTASH_URL = \"${{ secrets.UPSTASH_URL }}\"" >> wrangler.toml
+          echo "UPSTASH_TOKEN = \"${{ secrets.UPSTASH_TOKEN }}\"" >> wrangler.toml
+          echo "USERNAME = \"${{ secrets.USERNAME }}\"" >> wrangler.toml
+          echo "PASSWORD = \"${{ secrets.PASSWORD }}\"" >> wrangler.toml
 
       - name: Build for Cloudflare
         run: pnpm run build:cloudflare
         env:
-          # 解决编译时变量丢失问题
           UPSTASH_URL: ${{ secrets.UPSTASH_URL }}
           UPSTASH_TOKEN: ${{ secrets.UPSTASH_TOKEN }}
-          REDIS_URL: ${{ secrets.REDIS_URL }}
           NEXT_PUBLIC_STORAGE_TYPE: ${{ secrets.NEXT_PUBLIC_STORAGE_TYPE }}
           NODE_ENV: production
-          CI: true
-
-      - name: Install Wrangler
-        run: pnpm add -g wrangler@4.60.0
 
       - name: Deploy to Cloudflare
         uses: cloudflare/wrangler-action@v3
@@ -68,4 +49,3 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: deploy
           packageManager: pnpm
-          wranglerVersion: "4.60.0"
